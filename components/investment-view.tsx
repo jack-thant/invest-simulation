@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Progress } from "@/components/ui/progress"
-import { ShieldCheck, TrendingUp, CheckCircle, Clock, Users } from "lucide-react"
+import { ShieldCheck, TrendingUp, CheckCircle, Clock, Users, LogOut } from "lucide-react"
 import type { Player } from "@/lib/game-types"
 import { TOTAL_BUDGET } from "@/lib/game-types"
 
@@ -19,14 +20,32 @@ interface InvestmentViewProps {
 }
 
 export function InvestmentView({ players, currentPlayerId, roomId }: InvestmentViewProps) {
+  const router = useRouter()
   const [assetB, setAssetB] = useState(50)
   const [submitting, setSubmitting] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState("")
 
   const currentPlayer = players.find((p) => p.id === currentPlayerId)
   const hasSubmitted = currentPlayer?.has_submitted ?? false
   const assetA = TOTAL_BUDGET - assetB
   const submittedCount = players.filter((p) => p.has_submitted).length
+
+  async function handleLeave() {
+    setLeaving(true)
+    try {
+      await fetch("/api/game/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: roomId, player_id: currentPlayerId }),
+      })
+      router.push("/")
+    } catch (error) {
+      console.error("Failed to leave game:", error)
+    } finally {
+      setLeaving(false)
+    }
+  }
 
   async function handleSubmit() {
     setSubmitting(true)
@@ -231,6 +250,16 @@ export function InvestmentView({ players, currentPlayerId, roomId }: InvestmentV
           </div>
         </CardContent>
       </Card>
+
+      <Button
+        variant="ghost"
+        className="w-full text-muted-foreground hover:text-destructive"
+        onClick={handleLeave}
+        disabled={leaving}
+      >
+        <LogOut className="mr-2 h-4 w-4" />
+        {leaving ? "Leaving..." : "Leave Game"}
+      </Button>
     </div>
   )
 }

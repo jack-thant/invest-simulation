@@ -87,11 +87,18 @@ export async function POST(request: Request) {
 
     if (allSubmitted) {
       // Transition to results
-      await supabase
+      const { error: transitionError } = await supabase
         .from("rooms")
         .update({ state: "RESULTS_READY" })
         .eq("id", room_id)
         .eq("state", "COLLECTING_INVESTMENTS")
+
+      if (!transitionError) {
+        await supabase
+          .from("players")
+          .update({ has_submitted: false })
+          .eq("room_id", room_id)
+      }
     }
 
     return NextResponse.json({ success: true })

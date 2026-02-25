@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,10 +13,14 @@ import { MULTIPLIER } from "@/lib/game-types"
 interface ResultsViewProps {
   players: Player[]
   currentPlayerId: string
+  roomId: string
 }
 
-export function ResultsView({ players, currentPlayerId }: ResultsViewProps) {
+export function ResultsView({ players, currentPlayerId, roomId }: ResultsViewProps) {
   const router = useRouter()
+  const [loadingPlayAgain, setLoadingPlayAgain] = useState(false)
+  const [loadingMainMenu, setLoadingMainMenu] = useState(false)
+  const [error, setError] = useState("")
 
   const results = useMemo(() => {
     const n = players.length
@@ -35,6 +39,46 @@ export function ResultsView({ players, currentPlayerId }: ResultsViewProps) {
   }, [players])
 
   const maxPayout = Math.max(...results.playerResults.map((p) => p.finalPayout))
+  const readyCount = players.filter((player) => player.has_submitted).length
+  const allReady = players.length > 0 && readyCount === players.length
+  const currentPlayerReady = players.find((player) => player.id === currentPlayerId)?.has_submitted ?? false
+
+  async function handlePlayAgain() {
+    setLoadingPlayAgain(true)
+    setError("")
+
+    try {
+      const res = await fetch("/api/game/play-again", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: roomId, player_id: currentPlayerId }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || "Failed to register play again.")
+      }
+    } catch {
+      setError("Network error. Please try again.")
+    } finally {
+      setLoadingPlayAgain(false)
+    }
+  }
+
+  async function handleMainMenu() {
+    setLoadingMainMenu(true)
+    try {
+      await fetch("/api/game/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: roomId, player_id: currentPlayerId }),
+      })
+    } finally {
+      router.push("/")
+      setLoadingMainMenu(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -157,13 +201,34 @@ export function ResultsView({ players, currentPlayerId }: ResultsViewProps) {
         </CardContent>
       </Card>
 
+      {error && (
+        <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      <Button
+        onClick={handlePlayAgain}
+        disabled={loadingPlayAgain || currentPlayerReady}
+        className="w-full"
+      >
+        {loadingPlayAgain
+          ? "Submitting..."
+          : currentPlayerReady
+            ? allReady
+              ? "Restarting..."
+              : `Waiting for players (${readyCount}/${players.length})`
+            : "Play Again"}
+      </Button>
+
       <Button
         variant="outline"
-        onClick={() => router.push("/")}
+        onClick={handleMainMenu}
+        disabled={loadingMainMenu || loadingPlayAgain}
         className="w-full gap-2"
       >
         <Home className="h-4 w-4" />
-        Play Again
+        {loadingMainMenu ? "Leaving..." : "Main Menu"}
       </Button>
     </div>
   )

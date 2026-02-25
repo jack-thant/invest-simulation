@@ -27,8 +27,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       supabase.from("players").select("*").eq("room_id", roomId).order("created_at", { ascending: true }),
     ])
 
-    if (roomResult.data) setRoom(roomResult.data as Room)
-    if (playersResult.data) setPlayers(playersResult.data as Player[])
+    setRoom((roomResult.data as Room) ?? null)
+    setPlayers((playersResult.data as Player[]) ?? [])
 
     return { room: roomResult.data, players: playersResult.data }
   }, [roomId])
@@ -55,6 +55,21 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   // Realtime subscriptions
   useEffect(() => {
     if (!playerId) return
+    if (loading) return
+
+    if (!room) {
+      router.push("/")
+      return
+    }
+
+    const stillInRoom = players.some((player) => player.id === playerId)
+    if (!stillInRoom) {
+      router.push("/")
+    }
+  }, [playerId, room, players, router, loading])
+
+  useEffect(() => {
+    if (!playerId) return
 
     const supabase = createClient()
 
@@ -64,6 +79,11 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         "postgres_changes",
         { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` },
         (payload) => {
+          if (payload.eventType === "DELETE") {
+            setRoom(null)
+            return
+          }
+
           if (payload.new) {
             setRoom(payload.new as Room)
           }
@@ -129,7 +149,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         )}
 
         {room.state === "RESULTS_READY" && (
-          <ResultsView players={players} currentPlayerId={playerId} />
+          <ResultsView players={players} currentPlayerId={playerId} roomId={roomId} />
         )}
       </div>
     </main>

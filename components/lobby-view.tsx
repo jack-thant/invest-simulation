@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { createClient } from "@/lib/supabase/client"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Copy, Crown, Users, Check } from "lucide-react"
+import { Copy, Crown, Users, Check, X, LogOut } from "lucide-react"
 import type { Room, Player } from "@/lib/game-types"
 import { MAX_PLAYERS, MIN_PLAYERS } from "@/lib/game-types"
 
@@ -19,11 +19,45 @@ interface LobbyViewProps {
 export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
   const [copied, setCopied] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const router = useRouter()
 
   const currentPlayer = players.find((p) => p.id === currentPlayerId)
   const isHost = currentPlayer?.is_host ?? false
   const canStart = isHost && players.length >= MIN_PLAYERS
+
+  async function handleLeave() {
+    setLoadingAction("leave")
+    try {
+      await fetch("/api/game/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: room.id, player_id: currentPlayerId }),
+      })
+      router.push("/")
+    } catch (error) {
+      console.error("Failed to leave room:", error)
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
+  async function handleKick(playerId: string) {
+    if (!isHost) return
+    setLoadingAction(`kick-${playerId}`)
+    try {
+      await fetch("/api/game/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: room.id, player_id: playerId }),
+      })
+    } catch (error) {
+      console.error("Failed to kick player:", error)
+    } finally {
+      setLoadingAction(null)
+    }
+  }
 
   async function copyRoomCode() {
     await navigator.clipboard.writeText(room.id)
@@ -105,12 +139,26 @@ export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
                     )}
                   </span>
                 </div>
-                {player.is_host && (
-                  <Badge variant="default" className="gap-1">
-                    <Crown className="h-3 w-3" />
-                    Host
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {player.is_host && (
+                    <Badge variant="default" className="gap-1">
+                      <Crown className="h-3 w-3" />
+                      Host
+                    </Badge>
+                  )}
+                  {isHost && !player.is_host && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleKick(player.id)}
+                      disabled={loadingAction === `kick-${player.id}`}
+                      aria-label="Kick player"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
 
@@ -134,21 +182,43 @@ export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
       )}
 
       {isHost ? (
-        <Button
-          onClick={handleStartGame}
-          disabled={!canStart || starting}
-          size="lg"
-          className="w-full"
-        >
-          {starting
-            ? "Starting..."
-            : canStart
-              ? "Start Game"
-              : `Need ${MIN_PLAYERS - players.length} more player${MIN_PLAYERS - players.length !== 1 ? "s" : ""}`}
-        </Button>
+        <div className="flex flex-col gap-3">
+          <Button
+            onClick={handleStartGame}
+            disabled={!canStart || starting}
+            size="lg"
+            className="w-full"
+          >
+            {starting
+              ? "Starting..."
+              : canStart
+                ? "Start Game"
+                : `Need ${MIN_PLAYERS - players.length} more player${MIN_PLAYERS - players.length !== 1 ? "s" : ""}`}
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full text-muted-foreground hover:text-destructive"
+            onClick={handleLeave}
+            disabled={loadingAction === "leave"}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Leave Room
+          </Button>
+        </div>
       ) : (
-        <div className="rounded-lg bg-muted p-4 text-center text-sm text-muted-foreground">
-          Waiting for the host to start the game...
+        <div className="flex flex-col gap-3">
+          <div className="rounded-lg bg-muted p-4 text-center text-sm text-muted-foreground">
+            Waiting for the host to start the game...
+          </div>
+          <Button
+            variant="ghost"
+            className="w-full text-muted-foreground hover:text-destructive"
+            onClick={handleLeave}
+            disabled={loadingAction === "leave"}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Leave Room
+          </Button>
         </div>
       )}
     </div>
