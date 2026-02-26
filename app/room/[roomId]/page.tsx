@@ -73,6 +73,17 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
     const supabase = createClient()
 
+    const selfChannel = supabase
+      .channel(`self-${playerId}`)
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "players", filter: `id=eq.${playerId}` },
+        () => {
+          window.location.assign("/")
+        }
+      )
+      .subscribe()
+
     const roomChannel = supabase
       .channel(`room-${roomId}`)
       .on(
@@ -100,6 +111,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       .subscribe()
 
     return () => {
+      supabase.removeChannel(selfChannel)
       supabase.removeChannel(roomChannel)
     }
   }, [roomId, playerId, fetchRoomData])
@@ -141,7 +153,12 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         </div>
 
         {room.state === "WAITING_FOR_PLAYERS" && (
-          <LobbyView room={room} players={players} currentPlayerId={playerId} />
+          <LobbyView
+            room={room}
+            players={players}
+            currentPlayerId={playerId}
+            onRefresh={fetchRoomData}
+          />
         )}
 
         {room.state === "COLLECTING_INVESTMENTS" && (

@@ -6,20 +6,10 @@ export async function POST(request: Request) {
   const RESULTS_STATE = "RESULTS_READY"
 
   const supabase = await createClient()
-  const { player_id, room_id } = await request.json()
+  const { player_id, room_id, actor_id } = await request.json()
 
   if (!player_id || !room_id) {
     return NextResponse.json({ error: "Missing player_id or room_id" }, { status: 400 })
-  }
-
-  const { data: playerToRemove, error: fetchPlayerError } = await supabase
-    .from("players")
-    .select("id, room_id, is_host")
-    .eq("id", player_id)
-    .single()
-
-  if (fetchPlayerError || !playerToRemove || playerToRemove.room_id !== room_id) {
-    return NextResponse.json({ error: "Player not found in this room" }, { status: 404 })
   }
 
   const { data: room, error: roomError } = await supabase
@@ -30,6 +20,34 @@ export async function POST(request: Request) {
 
   if (roomError || !room) {
     return NextResponse.json({ error: "Room not found" }, { status: 404 })
+  }
+
+  if (actor_id && actor_id !== player_id) {
+    const { data: actor, error: actorError } = await supabase
+      .from("players")
+      .select("id, is_host")
+      .eq("id", actor_id)
+      .eq("room_id", room_id)
+      .single()
+
+    if (actorError || !actor || !actor.is_host) {
+      return NextResponse.json({ error: "Only the host can kick players" }, { status: 403 })
+    }
+  }
+
+  const { data: playerToRemove, error: fetchPlayerError } = await supabase
+    .from("players")
+    .select("id, room_id, is_host")
+    .eq("id", player_id)
+    .eq("room_id", room_id)
+    .maybeSingle()
+
+  if (fetchPlayerError) {
+    return NextResponse.json({ error: "Failed to load player" }, { status: 500 })
+  }
+
+  if (!playerToRemove) {
+    return NextResponse.json({ success: true, already_removed: true })
   }
 
   const { error: deletePlayerError } = await supabase

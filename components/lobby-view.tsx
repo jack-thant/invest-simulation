@@ -14,9 +14,10 @@ interface LobbyViewProps {
   room: Room
   players: Player[]
   currentPlayerId: string
+  onRefresh: () => Promise<unknown>
 }
 
-export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
+export function LobbyView({ room, players, currentPlayerId, onRefresh }: LobbyViewProps) {
   const [copied, setCopied] = useState(false)
   const [starting, setStarting] = useState(false)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
@@ -29,15 +30,25 @@ export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
 
   async function handleLeave() {
     setLoadingAction("leave")
+    setError("")
     try {
-      await fetch("/api/game/leave", {
+      const res = await fetch("/api/game/leave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room_id: room.id, player_id: currentPlayerId }),
+        body: JSON.stringify({ room_id: room.id, player_id: currentPlayerId, actor_id: currentPlayerId }),
       })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || "Failed to leave room.")
+        return
+      }
+
       router.push("/")
     } catch (error) {
       console.error("Failed to leave room:", error)
+      setError("Network error. Please try again.")
     } finally {
       setLoadingAction(null)
     }
@@ -46,14 +57,25 @@ export function LobbyView({ room, players, currentPlayerId }: LobbyViewProps) {
   async function handleKick(playerId: string) {
     if (!isHost) return
     setLoadingAction(`kick-${playerId}`)
+    setError("")
     try {
-      await fetch("/api/game/leave", {
+      const res = await fetch("/api/game/leave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room_id: room.id, player_id: playerId }),
+        body: JSON.stringify({ room_id: room.id, player_id: playerId, actor_id: currentPlayerId }),
       })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || "Failed to kick player.")
+        return
+      }
+
+      await onRefresh()
     } catch (error) {
       console.error("Failed to kick player:", error)
+      setError("Network error. Please try again.")
     } finally {
       setLoadingAction(null)
     }
