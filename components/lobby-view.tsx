@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,11 +23,60 @@ export function LobbyView({ room, players, currentPlayerId, onRefresh }: LobbyVi
   const [starting, setStarting] = useState(false)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const router = useRouter()
 
   const currentPlayer = players.find((p) => p.id === currentPlayerId)
   const isHost = currentPlayer?.is_host ?? false
   const canStart = isHost && players.length >= MIN_PLAYERS
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    const scheduleRefresh = () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+
+      refreshTimeoutRef.current = setTimeout(() => {
+        void onRefresh()
+      }, 120)
+    }
+
+    const playersChannel = supabase
+      .channel(`lobby-players-${room.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "players", filter: `room_id=eq.${room.id}` },
+        scheduleRefresh
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "players", filter: `room_id=eq.${room.id}` },
+        scheduleRefresh
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "players" },
+        (payload) => {
+          const deletedId = payload.old && "id" in payload.old ? String(payload.old.id) : null
+          if (!deletedId) return
+
+          const deletedWasInCurrentLobby = players.some((player) => player.id === deletedId)
+          if (deletedWasInCurrentLobby) {
+            scheduleRefresh()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+      supabase.removeChannel(playersChannel)
+    }
+  }, [room.id, players, onRefresh])
 
   async function handleLeave() {
     setLoadingAction("leave")

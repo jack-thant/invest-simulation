@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, use } from "react"
+import { useState, useEffect, useCallback, use, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { LobbyView } from "@/components/lobby-view"
@@ -18,6 +18,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const playersRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchRoomData = useCallback(async () => {
     const supabase = createClient()
@@ -32,6 +33,16 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
     return { room: roomResult.data, players: playersResult.data }
   }, [roomId])
+
+  const schedulePlayersRefresh = useCallback(() => {
+    if (playersRefreshTimeoutRef.current) {
+      clearTimeout(playersRefreshTimeoutRef.current)
+    }
+
+    playersRefreshTimeoutRef.current = setTimeout(() => {
+      void fetchRoomData()
+    }, 120)
+  }, [fetchRoomData])
 
   useEffect(() => {
     const storedId = sessionStorage.getItem("player_id")
@@ -96,25 +107,57 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           }
 
           if (payload.new) {
-            setRoom(payload.new as Room)
+            const nextRoom = payload.new as Room
+            const previousState = payload.old && "state" in payload.old ? String(payload.old.state) : null
+            const nextState = "state" in nextRoom ? String(nextRoom.state) : null
+
+            setRoom(nextRoom)
+
+            const movedBackToLobby =
+              nextState === "WAITING_FOR_PLAYERS" &&
+              (previousState === "COLLECTING_INVESTMENTS" || previousState === "RESULTS_READY")
+
+            if (movedBackToLobby) {
+              void fetchRoomData()
+            }
           }
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
-        () => {
-          // Re-fetch all players to get consistent state
-          fetchRoomData()
         }
       )
       .subscribe()
 
     return () => {
+      if (playersRefreshTimeoutRef.current) {
+        clearTimeout(playersRefreshTimeoutRef.current)
+      }
       supabase.removeChannel(selfChannel)
       supabase.removeChannel(roomChannel)
     }
   }, [roomId, playerId, fetchRoomData])
+
+  useEffect(() => {
+    if (!playerId) return
+    if (room?.state === "WAITING_FOR_PLAYERS") return
+
+    const supabase = createClient()
+
+    const playersChannel = supabase
+      .channel(`players-${roomId}-${room?.state ?? "unknown"}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
+        () => {
+          schedulePlayersRefresh()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      if (playersRefreshTimeoutRef.current) {
+        clearTimeout(playersRefreshTimeoutRef.current)
+      }
+      supabase.removeChannel(playersChannel)
+    }
+  }, [roomId, playerId, room?.state, schedulePlayersRefresh])
 
   if (loading) {
     return (
